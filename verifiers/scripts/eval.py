@@ -103,14 +103,14 @@ def main():
         "--api-key-var",
         "-k",
         type=str,
-        default="OPENAI_API_KEY",
+        default=None,
         help="Environment variable name for API key",
     )
     parser.add_argument(
         "--api-base-url",
         "-b",
         type=str,
-        default="https://api.openai.com/v1",
+        default=None,
         help="Base URL for API",
     )
     parser.add_argument(
@@ -250,19 +250,37 @@ def main():
 
     # load endpoints and get model config
     endpoints = load_endpoints(args.endpoints_path)
+    
+    # Default fallback values
+    DEFAULT_API_KEY_VAR = "OPENAI_API_KEY"
+    DEFAULT_API_BASE_URL = "https://api.openai.com/v1"
+    
     if args.model in endpoints:
-        api_key_var = endpoints[args.model]["key"]
-        api_base_url = endpoints[args.model]["url"]
+        # Model found in registry - use registry values as defaults
+        registry_api_key_var = endpoints[args.model]["key"]
+        registry_api_base_url = endpoints[args.model]["url"]
         args.model = endpoints[args.model]["model"]
-        logger.debug(
-            f"Using endpoint configuration for model '{args.model}' from registry"
-        )
+        
+        # CLI args override registry values if explicitly provided
+        api_key_var = args.api_key_var if args.api_key_var is not None else registry_api_key_var
+        api_base_url = args.api_base_url if args.api_base_url is not None else registry_api_base_url
+        
+        if args.api_key_var is not None or args.api_base_url is not None:
+            logger.debug(
+                f"Using endpoint configuration for model '{args.model}' from registry, "
+                f"with CLI overrides: api_key_var={args.api_key_var is not None}, "
+                f"api_base_url={args.api_base_url is not None}"
+            )
+        else:
+            logger.debug(
+                f"Using endpoint configuration for model '{args.model}' from registry"
+            )
     else:
         logger.debug(
             f"Model '{args.model}' not found in endpoint registry, using command-line arguments"
         )
-        api_key_var = args.api_key_var
-        api_base_url = args.api_base_url
+        api_key_var = args.api_key_var if args.api_key_var is not None else DEFAULT_API_KEY_VAR
+        api_base_url = args.api_base_url if args.api_base_url is not None else DEFAULT_API_BASE_URL
 
     # merge sampling args with precedence to JSON payload over explicit flags
     merged_sampling_args: dict = {}

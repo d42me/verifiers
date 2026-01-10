@@ -31,8 +31,8 @@ def _run_cli(monkeypatch, overrides):
         "env_dir_path": "./environments",
         "endpoints_path": "./configs/endpoints.py",
         "model": "gpt-4.1-mini",
-        "api_key_var": "OPENAI_API_KEY",
-        "api_base_url": "https://api.openai.com/v1",
+        "api_key_var": None,
+        "api_base_url": None,
         "header": None,
         "num_examples": 1,
         "rollouts_per_example": 1,
@@ -126,3 +126,182 @@ def test_cli_sampling_args_fill_from_flags_when_missing(monkeypatch):
     assert sa["max_tokens"] == 55
     assert sa["temperature"] == 0.8
     assert sa["enable_thinking"] is True
+
+
+def test_cli_api_args_override_registry(monkeypatch):
+    """Test that explicit CLI args override model registry values."""
+    import argparse
+    from types import SimpleNamespace
+
+    import verifiers.scripts.eval as vf_eval
+
+    base_args = {
+        "env_id": "dummy-env",
+        "env_args": {},
+        "env_dir_path": "./environments",
+        "endpoints_path": "./configs/endpoints.py",
+        "model": "gpt-4.1-mini",  # This model is in the registry
+        "api_key_var": "CUSTOM_API_KEY",  # User wants to override
+        "api_base_url": "https://custom-api.example.com/v1",  # User wants to override
+        "header": None,
+        "num_examples": 1,
+        "rollouts_per_example": 1,
+        "max_concurrent": 1,
+        "max_concurrent_generation": None,
+        "max_concurrent_scoring": None,
+        "max_tokens": None,
+        "temperature": None,
+        "sampling_args": None,
+        "verbose": False,
+        "no_interleave_scoring": False,
+        "state_columns": [],
+        "save_results": False,
+        "save_every": -1,
+        "save_to_hf_hub": False,
+        "hf_hub_dataset_name": "",
+    }
+    args_namespace = SimpleNamespace(**base_args)
+
+    captured: dict = {}
+
+    monkeypatch.setattr(
+        argparse.ArgumentParser,
+        "parse_args",
+        lambda self: args_namespace,
+    )
+    monkeypatch.setattr(vf_eval, "setup_logging", lambda *_, **__: None)
+
+    # Use a fake endpoint registry with gpt-4.1-mini
+    fake_endpoints = {
+        "gpt-4.1-mini": {
+            "model": "gpt-4.1-mini",
+            "url": "https://api.openai.com/v1",
+            "key": "OPENAI_API_KEY",
+        }
+    }
+    monkeypatch.setattr(vf_eval, "load_endpoints", lambda *_: fake_endpoints)
+
+    async def fake_run_evaluation(config):
+        captured["api_key_var"] = config.client_config.api_key_var
+        captured["api_base_url"] = config.client_config.api_base_url
+        captured["model"] = config.model
+        metadata = _make_metadata(config)
+        return GenerateOutputs(
+            prompt=[[{"role": "user", "content": "p"}]],
+            completion=[[{"role": "assistant", "content": "c"}]],
+            answer=[""],
+            state=[
+                {
+                    "timing": {
+                        "generation_ms": 0.0,
+                        "scoring_ms": 0.0,
+                        "total_ms": 0.0,
+                    }
+                }
+            ],
+            task=["default"],
+            info=[{}],
+            example_id=[0],
+            reward=[1.0],
+            metrics={},
+            metadata=metadata,
+        )
+
+    monkeypatch.setattr(vf_eval, "run_evaluation", fake_run_evaluation)
+
+    vf_eval.main()
+
+    # CLI args should override registry values
+    assert captured["api_key_var"] == "CUSTOM_API_KEY"
+    assert captured["api_base_url"] == "https://custom-api.example.com/v1"
+    # Model name should still come from registry
+    assert captured["model"] == "gpt-4.1-mini"
+
+
+def test_cli_api_args_use_registry_when_not_overridden(monkeypatch):
+    """Test that registry values are used when CLI args are not provided."""
+    import argparse
+    from types import SimpleNamespace
+
+    import verifiers.scripts.eval as vf_eval
+
+    base_args = {
+        "env_id": "dummy-env",
+        "env_args": {},
+        "env_dir_path": "./environments",
+        "endpoints_path": "./configs/endpoints.py",
+        "model": "gpt-4.1-mini",  # This model is in the registry
+        "api_key_var": None,  # Not overridden
+        "api_base_url": None,  # Not overridden
+        "header": None,
+        "num_examples": 1,
+        "rollouts_per_example": 1,
+        "max_concurrent": 1,
+        "max_concurrent_generation": None,
+        "max_concurrent_scoring": None,
+        "max_tokens": None,
+        "temperature": None,
+        "sampling_args": None,
+        "verbose": False,
+        "no_interleave_scoring": False,
+        "state_columns": [],
+        "save_results": False,
+        "save_every": -1,
+        "save_to_hf_hub": False,
+        "hf_hub_dataset_name": "",
+    }
+    args_namespace = SimpleNamespace(**base_args)
+
+    captured: dict = {}
+
+    monkeypatch.setattr(
+        argparse.ArgumentParser,
+        "parse_args",
+        lambda self: args_namespace,
+    )
+    monkeypatch.setattr(vf_eval, "setup_logging", lambda *_, **__: None)
+
+    # Use a fake endpoint registry with gpt-4.1-mini
+    fake_endpoints = {
+        "gpt-4.1-mini": {
+            "model": "gpt-4.1-mini",
+            "url": "https://api.openai.com/v1",
+            "key": "OPENAI_API_KEY",
+        }
+    }
+    monkeypatch.setattr(vf_eval, "load_endpoints", lambda *_: fake_endpoints)
+
+    async def fake_run_evaluation(config):
+        captured["api_key_var"] = config.client_config.api_key_var
+        captured["api_base_url"] = config.client_config.api_base_url
+        captured["model"] = config.model
+        metadata = _make_metadata(config)
+        return GenerateOutputs(
+            prompt=[[{"role": "user", "content": "p"}]],
+            completion=[[{"role": "assistant", "content": "c"}]],
+            answer=[""],
+            state=[
+                {
+                    "timing": {
+                        "generation_ms": 0.0,
+                        "scoring_ms": 0.0,
+                        "total_ms": 0.0,
+                    }
+                }
+            ],
+            task=["default"],
+            info=[{}],
+            example_id=[0],
+            reward=[1.0],
+            metrics={},
+            metadata=metadata,
+        )
+
+    monkeypatch.setattr(vf_eval, "run_evaluation", fake_run_evaluation)
+
+    vf_eval.main()
+
+    # Should use registry values when CLI args are not provided
+    assert captured["api_key_var"] == "OPENAI_API_KEY"
+    assert captured["api_base_url"] == "https://api.openai.com/v1"
+    assert captured["model"] == "gpt-4.1-mini"
